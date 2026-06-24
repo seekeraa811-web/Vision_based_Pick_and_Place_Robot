@@ -16,4 +16,5 @@ A computer vision based robotic pick-and-place system using OpenCV, camera calib
 - Python
 - OpenCV
 - NumPy
-- Robotics API
+- Python UI
+- Wlkata Mirobot API
