@@ -12,6 +12,7 @@ class CubeDetector:
         frame,
         calibration_ready=False,
         pixel_to_world_func=None,
+        is_inside_workspace_func=None,
         is_in_detection_zone_func=None,
         world_to_robot_func=None,
     ):
@@ -57,6 +58,19 @@ class CubeDetector:
 
             if calibration_ready:
                 xw, yw = pixel_to_world_func(cx, cy)
+
+                if not is_inside_workspace_func(xw, yw):
+                    cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
+                    cv2.putText(
+                        frame,
+                        "Out of workspace",
+                        (x, y - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5,
+                        (0, 0, 255),
+                        2,
+                    )
+                    continue
 
                 if not is_in_detection_zone_func(xw, yw):
                     cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 165, 255), 2)
@@ -154,4 +168,3 @@ def draw_saved_cube_points(frame, detected_cube_points):
             (255, 0, 0),
             2,
         )
-

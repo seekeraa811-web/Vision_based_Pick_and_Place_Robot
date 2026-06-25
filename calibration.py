@@ -25,14 +25,28 @@ def world_to_robot(xw, yw, zw=0):
     return xr, yr, zr
 
 
+def is_inside_workspace(workspace_world_points, xw, yw):
+    if len(workspace_world_points) < 3:
+        return False
+
+    polygon = np.array(workspace_world_points, dtype=np.float32)
+    return cv2.pointPolygonTest(polygon, (float(xw), float(yw)), False) >= 0
+
+
 def is_in_detection_zone(division_line_world_points, xw, yw):
     if len(division_line_world_points) != 2:
         return False
 
+    return get_zone_side(division_line_world_points, xw, yw) >= 0
+
+
+def is_in_placement_zone(division_line_world_points, xw, yw):
+    if len(division_line_world_points) != 2:
+        return False
+
+    return get_zone_side(division_line_world_points, xw, yw) < 0
+
+
+def get_zone_side(division_line_world_points, xw, yw):
     (x1, y1), (x2, y2) = division_line_world_points
-    side = (x2 - x1) * (yw - y1) - (y2 - y1) * (xw - x1)
-
-    # If blocks are detected on the wrong side of the division line,
-    # flip this condition to: return side <= 0
-    return side >= 0
-
+    return (x2 - x1) * (yw - y1) - (y2 - y1) * (xw - x1)

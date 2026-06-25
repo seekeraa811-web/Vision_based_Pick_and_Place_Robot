@@ -24,9 +24,21 @@ WORLD_POINTS = np.array([
     [-90, 310],
 ], dtype=np.float32)
 
+WORKSPACE_WORLD_POINTS = np.array([
+    [310, 310],
+    [310, 0],
+    [310, -310],
+    [110, -310],
+    [-90, -310],
+    [-90, 0],
+    [-90, 310],
+    [110, 310],
+], dtype=np.float32)
+
 ROBOT_BASE_WORLD = np.array([0, 0, 0], dtype=np.float32)
 PLACE_POINT_WORLD = np.array([0, 0, 0], dtype=np.float32)
 
 DETECTION_UPDATE_SECONDS = 10
 CUBE_MATCH_DISTANCE_PX = 60
-
+PLACEMENT_MARGIN_MM = 35
+PLACEMENT_SPACING_MM = 60

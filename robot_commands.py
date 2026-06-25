@@ -26,6 +26,7 @@ class RobotController:
         self.idle_callback = idle_callback
         self.robot_serial = None
         self.robot_arm = None
+        self.at_home = False
 
     def set_status(self, text):
         if self.status_callback is not None:
@@ -34,6 +35,30 @@ class RobotController:
     def update_idle(self):
         if self.idle_callback is not None:
             self.idle_callback()
+
+    def get_state(self):
+        if self.robot_arm is None:
+            return "Disconnected"
+        try:
+            return self.robot_arm.getState()
+        except Exception:
+            return "Unknown"
+
+    def is_idle(self):
+        return self.get_state() == "Idle"
+
+    def is_at_home(self):
+        return self.robot_arm is not None and self.at_home
+
+    def can_home(self):
+        return self.robot_arm is not None and self.is_idle() and not self.at_home
+
+    def wait_until_idle(self, waiting_text, status_text):
+        while self.get_state() != "Idle":
+            print(waiting_text)
+            self.set_status(status_text)
+            self.update_idle()
+            time.sleep(0.5)
 
     def connect_robot(self):
         if self.robot_arm is not None:
@@ -57,11 +82,8 @@ class RobotController:
 
         # Same homing style as Wlkata.py.
         self.robot_arm.homing()
-        while self.robot_arm.getState() != "Idle":
-            print("Homing...")
-            self.set_status("Status: Robot homing...")
-            self.update_idle()
-            time.sleep(0.5)
+        self.wait_until_idle("Homing...", "Status: Robot homing...")
+        self.at_home = True
         print("Homing complete")
 
         self.robot_arm.speed(ROBOT_SPEED)
@@ -82,6 +104,25 @@ class RobotController:
 
         self.robot_arm = None
         self.robot_serial = None
+        self.at_home = False
+
+    def home_robot(self):
+        arm = self.connect_robot()
+
+        if self.at_home:
+            print("Robot is already at home.")
+            return
+
+        if not self.is_idle():
+            raise RuntimeError("Robot must be idle before homing.")
+
+        print("Home operation selected.")
+        self.set_status("Status: Robot homing...")
+        arm.homing()
+        self.wait_until_idle("Homing...", "Status: Robot homing...")
+        self.at_home = True
+        print("Homing complete")
+        self.set_status("Status: Robot homed.")
 
     def move_robot_to(self, x, y, z=TOUCH_Z_MM):
         arm = self.connect_robot()
@@ -97,12 +138,9 @@ class RobotController:
             MOVE_RY_DEG,
             MOVE_RZ_DEG,
         )
+        self.at_home = False
 
-        while arm.getState() != "Idle":
-            print("Moving...")
-            self.set_status("Status: Robot moving...")
-            self.update_idle()
-            time.sleep(0.5)
+        self.wait_until_idle("Moving...", "Status: Robot moving...")
 
         print("Reached target point")
 
@@ -127,4 +165,3 @@ class RobotController:
             place_point_world[1],
             place_point_world[2],
         )
-
