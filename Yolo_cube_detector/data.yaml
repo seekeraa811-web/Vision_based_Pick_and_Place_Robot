@@ -1,0 +1,8 @@
+path: dataset
+train: images/train
+val: images/val
+
+names:
+  0: green_cube
+  1: orange_cube
+  2: purple_cube

@@ -1,0 +1,3 @@
+green_cube
+orange_cube
+purple_cube
