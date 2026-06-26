@@ -7,7 +7,14 @@ import numpy as np
 from PIL import Image, ImageTk
 
 import calibration
-from config import CAMERA_ID, DETECTION_UPDATE_SECONDS
+from config import (
+    CAMERA_ID,
+    DEFAULT_HSV_LOWER,
+    DEFAULT_HSV_UPPER,
+    DEFAULT_MAX_CUBE_AREA_PX,
+    DEFAULT_MIN_CUBE_AREA_PX,
+    DETECTION_UPDATE_SECONDS,
+)
 from detection import CubeDetector, SavedCubeTracker, draw_saved_cube_points
 from placement import PlacementPlanner
 from robot_commands import RobotController
@@ -53,6 +60,9 @@ class RobotVisionUI:
         self.clicked_points = []
         self.H_img_to_world = None
         self.detector = CubeDetector()
+        self.tuning_mode = False
+        self.area_drag_start = None
+        self.area_drag_end = None
         self.cube_tracker = SavedCubeTracker()
         self.placement_planner = PlacementPlanner()
         self.robot = RobotController(
@@ -62,6 +72,8 @@ class RobotVisionUI:
 
         self.build_layout()
         self.video_label.bind("<Button-1>", self.mouse_click)
+        self.video_label.bind("<B1-Motion>", self.mouse_drag)
+        self.video_label.bind("<ButtonRelease-1>", self.mouse_release)
 
         self.refresh_detection_log()
         self.update_frame()
@@ -156,7 +168,7 @@ class RobotVisionUI:
         self.block_log = tk.Text(
             log_frame,
             width=34,
-            height=31,
+            height=14,
             font=("Consolas", 10),
             bg=PANEL_BG,
             fg=TEXT_DARK,
@@ -169,6 +181,7 @@ class RobotVisionUI:
             wrap=tk.WORD,
         )
         self.block_log.pack(fill=tk.BOTH, expand=True)
+        self.build_detection_controls(log_frame)
 
         button_frame = tk.Frame(shell, bg=APP_SURFACE)
         button_frame.pack(fill=tk.X, padx=18, pady=(0, 12))
@@ -255,11 +268,155 @@ class RobotVisionUI:
         )
         self.telemetry_label.pack(pady=(0, 12))
 
+    def build_detection_controls(self, parent):
+        controls = tk.Frame(parent, bg=PANEL_BG)
+        controls.pack(fill=tk.X, padx=12, pady=(0, 12))
+
+        tk.Frame(controls, height=1, bg="#d4d4cf").pack(fill=tk.X, pady=(0, 8))
+        tk.Label(
+            controls,
+            text="Detection Tuning",
+            bg=PANEL_BG,
+            fg=TEXT_DARK,
+            font=("Arial", 11, "bold"),
+            anchor="w",
+        ).pack(fill=tk.X)
+
+        self.h_min_var = tk.IntVar(value=DEFAULT_HSV_LOWER[0])
+        self.h_max_var = tk.IntVar(value=DEFAULT_HSV_UPPER[0])
+        self.s_min_var = tk.IntVar(value=DEFAULT_HSV_LOWER[1])
+        self.s_max_var = tk.IntVar(value=DEFAULT_HSV_UPPER[1])
+        self.v_min_var = tk.IntVar(value=DEFAULT_HSV_LOWER[2])
+        self.v_max_var = tk.IntVar(value=DEFAULT_HSV_UPPER[2])
+        self.min_area_var = tk.IntVar(value=DEFAULT_MIN_CUBE_AREA_PX)
+        self.max_area_var = tk.IntVar(value=DEFAULT_MAX_CUBE_AREA_PX)
+
+        self.create_tuning_scale(controls, "H Min", self.h_min_var, 0, 179)
+        self.create_tuning_scale(controls, "H Max", self.h_max_var, 0, 179)
+        self.create_tuning_scale(controls, "S Min", self.s_min_var, 0, 255)
+        self.create_tuning_scale(controls, "S Max", self.s_max_var, 0, 255)
+        self.create_tuning_scale(controls, "V Min", self.v_min_var, 0, 255)
+        self.create_tuning_scale(controls, "V Max", self.v_max_var, 0, 255)
+        self.create_tuning_scale(controls, "Min Area", self.min_area_var, 0, 30000)
+        self.create_tuning_scale(controls, "Max Area", self.max_area_var, 1, 500000)
+
+        button_row = tk.Frame(controls, bg=PANEL_BG)
+        button_row.pack(fill=tk.X, pady=(8, 0))
+
+        self.tune_button = tk.Button(
+            button_row,
+            text="Tune Color/Area",
+            command=self.toggle_tuning_mode,
+            relief=tk.FLAT,
+            bd=0,
+            bg="#e5eeed",
+            fg=TEXT_DARK,
+            activebackground="#d0e7e5",
+            activeforeground=ACCENT_DARK,
+            font=("Arial", 9, "bold"),
+            cursor="hand2",
+        )
+        self.tune_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
+
+        tk.Button(
+            button_row,
+            text="Reset",
+            command=self.reset_detection_settings,
+            relief=tk.FLAT,
+            bd=0,
+            bg="#eee8e5",
+            fg=TEXT_DARK,
+            activebackground="#f0dddd",
+            activeforeground=CLASSIC_RED,
+            font=("Arial", 9, "bold"),
+            cursor="hand2",
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
+
+    def create_tuning_scale(self, parent, label, variable, from_, to):
+        row = tk.Frame(parent, bg=PANEL_BG)
+        row.pack(fill=tk.X, pady=1)
+
+        tk.Label(
+            row,
+            text=label,
+            width=8,
+            bg=PANEL_BG,
+            fg=TEXT_MUTED,
+            font=("Arial", 8),
+            anchor="w",
+        ).pack(side=tk.LEFT)
+
+        tk.Scale(
+            row,
+            from_=from_,
+            to=to,
+            orient=tk.HORIZONTAL,
+            variable=variable,
+            command=self.on_detection_setting_changed,
+            bg=PANEL_BG,
+            fg=TEXT_DARK,
+            troughcolor="#d8ddda",
+            activebackground=ACCENT,
+            highlightthickness=0,
+            bd=0,
+            length=180,
+            showvalue=True,
+            font=("Arial", 8),
+        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
     def set_status(self, text):
         display_text = text
         if text.lower().startswith("status:"):
             display_text = "SYSTEM STATUS:" + text.split(":", 1)[1]
         self.status_label.config(text=display_text.upper())
+
+    def on_detection_setting_changed(self, _value=None):
+        if not hasattr(self, "h_min_var"):
+            return
+
+        h_min = min(self.h_min_var.get(), self.h_max_var.get())
+        h_max = max(self.h_min_var.get(), self.h_max_var.get())
+        s_min = min(self.s_min_var.get(), self.s_max_var.get())
+        s_max = max(self.s_min_var.get(), self.s_max_var.get())
+        v_min = min(self.v_min_var.get(), self.v_max_var.get())
+        v_max = max(self.v_min_var.get(), self.v_max_var.get())
+        min_area = min(self.min_area_var.get(), self.max_area_var.get())
+        max_area = max(self.min_area_var.get(), self.max_area_var.get())
+
+        self.detector.update_settings(
+            lower_hsv=(h_min, s_min, v_min),
+            upper_hsv=(h_max, s_max, v_max),
+            min_area=min_area,
+            max_area=max_area,
+        )
+
+        self.cube_tracker.reset()
+        self.refresh_detection_log()
+
+    def reset_detection_settings(self):
+        self.h_min_var.set(DEFAULT_HSV_LOWER[0])
+        self.h_max_var.set(DEFAULT_HSV_UPPER[0])
+        self.s_min_var.set(DEFAULT_HSV_LOWER[1])
+        self.s_max_var.set(DEFAULT_HSV_UPPER[1])
+        self.v_min_var.set(DEFAULT_HSV_LOWER[2])
+        self.v_max_var.set(DEFAULT_HSV_UPPER[2])
+        self.min_area_var.set(DEFAULT_MIN_CUBE_AREA_PX)
+        self.max_area_var.set(DEFAULT_MAX_CUBE_AREA_PX)
+        self.area_drag_start = None
+        self.area_drag_end = None
+        self.on_detection_setting_changed()
+        self.set_status("Status: Detection tuning reset.")
+
+    def toggle_tuning_mode(self):
+        self.tuning_mode = not self.tuning_mode
+        if self.tuning_mode:
+            self.tune_button.config(text="Run Normal Detection", bg="#d0e7e5")
+            self.set_status("Status: Tuning mode active. Drag cube to set max area.")
+        else:
+            self.tune_button.config(text="Tune Color/Area", bg="#e5eeed")
+            self.area_drag_start = None
+            self.area_drag_end = None
+            self.set_status("Status: Normal detection active.")
 
     def update_home_button_state(self):
         if not hasattr(self, "home_button"):
@@ -417,7 +574,45 @@ class RobotVisionUI:
 
         return int(x), int(y)
 
+    def mouse_drag(self, event):
+        if not self.tuning_mode:
+            return
+
+        x, y = self.get_frame_click_position(event)
+        if x is None or y is None:
+            return
+
+        if self.area_drag_start is None:
+            self.area_drag_start = (x, y)
+        self.area_drag_end = (x, y)
+
+    def mouse_release(self, event):
+        if not self.tuning_mode or self.area_drag_start is None:
+            return
+
+        x, y = self.get_frame_click_position(event)
+        if x is None or y is None:
+            return
+
+        self.area_drag_end = (x, y)
+        x1, y1 = self.area_drag_start
+        x2, y2 = self.area_drag_end
+        area = abs(x2 - x1) * abs(y2 - y1)
+
+        if area > 0:
+            self.max_area_var.set(area)
+            self.on_detection_setting_changed()
+            self.set_status(f"Status: Max cube area set to {area} px.")
+
     def mouse_click(self, event):
+        if self.tuning_mode:
+            x, y = self.get_frame_click_position(event)
+            if x is None or y is None:
+                return
+            self.area_drag_start = (x, y)
+            self.area_drag_end = (x, y)
+            return
+
         if (
             not self.calibration_mode
             and not self.zone_calibration_mode
@@ -589,6 +784,12 @@ class RobotVisionUI:
             )
             lines.append(f"Placement slots: {remaining_slots}")
 
+        lines.append(
+            f"HSV: [{self.detector.lower_hsv[0]}, {self.detector.lower_hsv[1]}, {self.detector.lower_hsv[2]}] "
+            f"- [{self.detector.upper_hsv[0]}, {self.detector.upper_hsv[1]}, {self.detector.upper_hsv[2]}]"
+        )
+        lines.append(f"Area: {self.detector.min_area}-{self.detector.max_area} px")
+
         lines.append("")
 
         if not self.detected_cube_points:
@@ -683,6 +884,27 @@ class RobotVisionUI:
         if len(line_pts) == 2:
             cv2.line(frame, tuple(line_pts[0]), tuple(line_pts[1]), (255, 255, 0), 3)
 
+    def draw_area_selection(self, frame):
+        if self.area_drag_start is None or self.area_drag_end is None:
+            return
+
+        x1, y1 = self.area_drag_start
+        x2, y2 = self.area_drag_end
+        left, right = sorted((x1, x2))
+        top, bottom = sorted((y1, y2))
+        area = (right - left) * (bottom - top)
+
+        cv2.rectangle(frame, (left, top), (right, bottom), (0, 255, 255), 2)
+        cv2.putText(
+            frame,
+            f"Max area: {area} px",
+            (left, max(top - 10, 20)),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.6,
+            (0, 255, 255),
+            2,
+        )
+
     def draw_status_overlay(self, frame):
         if self.calibration_mode:
             cv2.putText(
@@ -735,6 +957,17 @@ class RobotVisionUI:
                 2,
             )
 
+        if self.tuning_mode:
+            cv2.putText(
+                frame,
+                "TUNING MODE: adjust HSV sliders or drag cube to set max area",
+                (20, self.frame_height - 24),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.6,
+                (0, 255, 255),
+                2,
+            )
+
     def update_frame(self):
         ret, frame = self.cap.read()
 
@@ -747,7 +980,12 @@ class RobotVisionUI:
         self.draw_division_line(frame)
         self.draw_workspace_points(frame)
 
-        if self.calibration_done and self.zones_ready and self.workspace_ready:
+        if self.tuning_mode:
+            frame, mask, detected_points = self.detector.detect_blocks(
+                frame,
+                calibration_ready=False,
+            )
+        elif self.calibration_done and self.zones_ready and self.workspace_ready:
             frame, mask, detected_points = self.detector.detect_blocks(
                 frame,
                 calibration_ready=True,
@@ -770,6 +1008,7 @@ class RobotVisionUI:
 
             draw_saved_cube_points(frame, self.detected_cube_points)
 
+        self.draw_area_selection(frame)
         self.draw_status_overlay(frame)
 
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
