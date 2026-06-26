@@ -3,9 +3,9 @@ import time
 from ultralytics import YOLO
 
 MODELS = {
-    "1": ("YOLOv8",  r"D:\Myproject\runs\detect\train\weights\best.pt"),
-    "2": ("YOLO11",  r"D:\Myproject\runs\yolo11_cubes\weights\best.pt"),
-    "3": ("YOLO26",  r"D:\Myproject\runs\yolo26_cubes\weights\best.pt"),
+    "1": ("YOLOv8", "Yolo_cube_detector/runs/detect/train/weights/best.pt"),
+    "2": ("YOLO11", "Yolo_cube_detector/runs/yolo11_cubes/weights/best.pt"),
+    "3": ("YOLO26", "Yolo_cube_detector/runs/yolo26_cubes/weights/best.pt"),
 }
 
 current_key = "1"
