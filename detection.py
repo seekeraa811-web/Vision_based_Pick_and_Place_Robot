@@ -3,43 +3,59 @@ import time
 import cv2
 import numpy as np
 
-from config import CUBE_MATCH_DISTANCE_PX
+from config import (
+    CUBE_MATCH_DISTANCE_PX,
+    DEFAULT_HSV_LOWER,
+    DEFAULT_HSV_UPPER,
+    DEFAULT_MAX_CUBE_AREA_PX,
+    DEFAULT_MIN_CUBE_AREA_PX,
+)
 
 
 class CubeDetector:
-    def detect_blocks(
+    def __init__(
         self,
-        frame,
-        calibration_ready=False,
-        pixel_to_world_func=None,
-        is_inside_workspace_func=None,
-        is_in_detection_zone_func=None,
-        world_to_robot_func=None,
+        lower_hsv=DEFAULT_HSV_LOWER,
+        upper_hsv=DEFAULT_HSV_UPPER,
+        min_area=DEFAULT_MIN_CUBE_AREA_PX,
+        max_area=DEFAULT_MAX_CUBE_AREA_PX,
     ):
+        self.lower_hsv = np.array(lower_hsv, dtype=np.uint8)
+        self.upper_hsv = np.array(upper_hsv, dtype=np.uint8)
+        self.min_area = min_area
+        self.max_area = max_area
+
+    def update_settings(self, lower_hsv=None, upper_hsv=None, min_area=None, max_area=None):
+        if lower_hsv is not None:
+            self.lower_hsv = np.array(lower_hsv, dtype=np.uint8)
+        if upper_hsv is not None:
+            self.upper_hsv = np.array(upper_hsv, dtype=np.uint8)
+        if min_area is not None:
+            self.min_area = int(min_area)
+        if max_area is not None:
+            self.max_area = int(max_area)
+
+    def detect_blocks(self, frame, calibration_ready=False, pixel_to_world_func=None,
+        is_inside_workspace_func=None, is_in_detection_zone_func=None, world_to_robot_func=None):
+
         blurred_image = cv2.GaussianBlur(frame, (5, 5), 0)
         hsv = cv2.cvtColor(blurred_image, cv2.COLOR_BGR2HSV)
         hsv[:, :, 2] = cv2.equalizeHist(hsv[:, :, 2])
 
-        lower_color = np.array([38, 28, 26])
-        upper_color = np.array([84, 255, 255])
-        mask = cv2.inRange(hsv, lower_color, upper_color)
+        mask = cv2.inRange(hsv, self.lower_hsv, self.upper_hsv)
 
         kernel = np.ones((5, 5), np.uint8)
         mask = cv2.erode(mask, kernel, iterations=2)
         mask = cv2.dilate(mask, kernel, iterations=4)
 
-        contours, _ = cv2.findContours(
-            mask,
-            cv2.RETR_EXTERNAL,
-            cv2.CHAIN_APPROX_SIMPLE,
-        )
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
         detected_points = []
 
         for cnt in contours:
             area = cv2.contourArea(cnt)
 
-            if area <= 15:
+            if area < self.min_area or area > self.max_area:
                 continue
 
             x, y, w, h = cv2.boundingRect(cnt)
@@ -61,28 +77,14 @@ class CubeDetector:
 
                 if not is_inside_workspace_func(xw, yw):
                     cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 0, 255), 2)
-                    cv2.putText(
-                        frame,
-                        "Out of workspace",
-                        (x, y - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5,
-                        (0, 0, 255),
-                        2,
-                    )
+                    cv2.putText( frame, "Out of workspace", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                        0.5, (0, 0, 255), 2)
                     continue
 
                 if not is_in_detection_zone_func(xw, yw):
                     cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 165, 255), 2)
-                    cv2.putText(
-                        frame,
-                        "Placement zone",
-                        (x, y - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.5,
-                        (0, 165, 255),
-                        2,
-                    )
+                    cv2.putText( frame, "Placement zone", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5,
+                        (0, 165, 255), 2)
                     continue
 
                 xr, yr, zr = world_to_robot_func(xw, yw)
@@ -94,15 +96,8 @@ class CubeDetector:
 
             cv2.rectangle(frame, (x, y), (x + w, y + h), (0, 255, 0), 2)
             cv2.circle(frame, (cx, cy), 5, (0, 0, 255), -1)
-            cv2.putText(
-                frame,
-                text,
-                (x, y - 10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (0, 255, 0),
-                2,
-            )
+            cv2.putText( frame, text, (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX,
+                0.5, (0, 255, 0), 2)
 
         return frame, mask, detected_points
 
